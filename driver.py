@@ -49,8 +49,6 @@ def setup_args():
         help='The number of layers of depth.')
     parser.add_argument('--center-plane', type=int, default=0, choices=range(0,25),
         help='The number of depth layers to appear behind the center plane.')
-    parser.add_argument('--save-image',
-        help='Save the image at the end of program execution to the given location.')
 
     return validate_args(parser.parse_args())
 

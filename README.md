@@ -40,9 +40,6 @@ optional arguments:
   --center-plane 0-24
                         The number of depth layers to appear behind the center
                         plane.
-  --save-image SAVE_IMAGE
-                        Save the image at the end of program execution to the
-                        given location.
 ```
 
 ## Results
