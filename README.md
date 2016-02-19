@@ -18,28 +18,25 @@ It's git, the standard operating procedure: `git clone git@github.com:marchese29
 ## Usage
 The usage text is pretty self-explanatory:
 ```
-usage: driver.py [-h] [--reverse] [--stretch]
-                 [--num-layers 5-24]
-                 [--center-plane 0-24]
-                 [--save-image SAVE_IMAGE]
+usage: driver.py [-h] [--reverse] [--stretch] [--num-layers 5-25]
+                 [--center-plane 0-25]
                  depthmap
 
 Depth-map to stereogram converter.
 
 positional arguments:
-  depthmap              File location of the depth map in a readable image
-                        format.
+  depthmap             File location of the depth map in a readable image
+                       format.
 
 optional arguments:
-  -h, --help            show this help message and exit
-  --reverse             Indicates that the depth map is inverted (darker ==
-                        closer)
-  --stretch             Scale values to 0-255
-  --num-layers 5-24
-                        The number of layers of depth.
-  --center-plane 0-24
-                        The number of depth layers to appear behind the center
-                        plane.
+  -h, --help           show this help message and exit
+  --reverse            Indicates that the depth map is inverted (darker ==
+                       closer)
+  --stretch            Scale values to 0-255
+  --num-layers 5-25    The number of layers of depth.
+  --center-plane 0-25  The number of depth layers to appear behind the center
+                       plane.
+
 ```
 
 ## Results

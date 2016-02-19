@@ -45,9 +45,9 @@ def setup_args():
     parser.add_argument('--reverse', action='store_true',
         help='Indicates that the depth map is inverted (darker == closer)')
     parser.add_argument('--stretch', action='store_true', help='Scale values to 0-255')
-    parser.add_argument('--num-layers', type=int, default=10, choices=range(5,25),
+    parser.add_argument('--num-layers', type=int, default=10, choices=range(5,26), metavar='5-25',
         help='The number of layers of depth.')
-    parser.add_argument('--center-plane', type=int, default=0, choices=range(0,25),
+    parser.add_argument('--center-plane', type=int, default=0, choices=range(0,26), metavar='0-25',
         help='The number of depth layers to appear behind the center plane.')
 
     return validate_args(parser.parse_args())
