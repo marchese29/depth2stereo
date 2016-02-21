@@ -56,8 +56,6 @@ def setup_args():
 def calculate_stereogram(depth_map, cmd_args):
     '''This is where all of the number crunching originates.  This function will calculate and
     return the stereogram from the given depth map.
-
-    Algorithm Details to follow...
     '''
     # This keeps track of all attempts to write to a specific pixel in the resulting stereogram.
     cumulative_stereogram = np.zeros((depth_map.shape[0], depth_map.shape[1], cmd_args.num_layers),
@@ -66,24 +64,60 @@ def calculate_stereogram(depth_map, cmd_args):
     # This keeps track of the number of attempts to write to a specific pixel in the image.
     manip_counts = np.zeros((depth_map.shape[0], depth_map.shape[1]), dtype=np.uint8)
 
-    # Copy over the original image to the left.
-    np.copyto(cumulative_stereogram[:,:depth_map.shape[1],0], depth_map)
-
     # The intensity depth of a layer (range of depths mapping to the same layer).
     layer_depth = 255.0 / float(cmd_args.num_layers)
 
-    for j in xrange(depth_map.shape[1]):
-        for i in xrange(depth_map.shape[0]):
-            layer_number = int(math.floor(depth_map[i,j] / layer_depth))
-            new_j = j + layer_number - cmd_args.center_plane
+    # Tells us how far to shift stuff.
+    shift_map = np.zeros(256, dtype=int)
+    for i in xrange(256):
+        shift_map[i] = int(math.floor(float(i) / layer_depth)) - cmd_args.center_plane
 
-            # Only write in the stereogram if the points are still in bounds.
-            if new_j >= 0 and new_j < depth_map.shape[1]:
-                # Don't overwrite old values quite yet.
-                cumulative_stereogram[i,new_j,manip_counts[i,new_j]] = depth_map[i,j]
-                manip_counts[i,new_j] += 1
+    for i in xrange(depth_map.shape[0]):
+        stop = depth_map.shape[1] - 1
+        start = stop - 1
 
-    return cumulative_stereogram.max(axis=2)
+        # Calculate the interval in which tearing will occur.
+        while stop >= 0:
+            while start >= 0 and shift_map[depth_map[i, start]] <= shift_map[depth_map[i, start+1]]:
+                start -= 1
+            start += 1
+
+            # Get a reference to the range of original values we are checking.
+            original = depth_map[i, start:stop+1]
+
+            # Create a representation of the new range being created.
+            left = start + shift_map[depth_map[i, start]]
+            shift_left = start - left
+            right = stop + shift_map[depth_map[i, stop]]
+            shifted = np.zeros(right - left + 1, dtype=np.uint8)
+
+            for j in xrange(original.shape[0]):
+                shifted[j + shift_map[original[j]] + shift_left] = original[j]
+
+            # Correct for missing data in the shifted segment.
+            orig_ptr = start
+            for j in xrange(shifted.shape[0]):
+                if shifted[j] == depth_map[i, orig_ptr]:
+                    # This entry is good to go.
+                    orig_ptr += 1
+                else:
+                    # This entry is inside of a tear, copy the previous data point.
+                    # TODO: Handle missing data according to user preference.
+                    shifted[j] = shifted[j-1]
+
+            # Input the data into the cumulative stereogram.
+            for j in xrange(shifted.shape[0]):
+                idx = start - shift_left + j
+                if idx > 0 and idx < depth_map.shape[1]:
+                    cumulative_stereogram[i, idx, manip_counts[i, idx]] = shifted[j]
+                    manip_counts[i, idx] += 1
+
+            # Shift the indices for the next chunk of data from this line.
+            stop = start - 1
+            start = stop - 1
+
+    # Use a median filter to cut down a little bit on the edge noise.
+    return cv2.medianBlur(cumulative_stereogram.max(axis=2), 7)
 
 
 def main():
