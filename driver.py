@@ -12,6 +12,8 @@ This is a work in progress, future plans include:
 '''
 import argparse
 import math
+import multiprocessing
+from multiprocessing import sharedctypes
 import os
 import sys
 import traceback
@@ -53,71 +55,79 @@ def setup_args():
     return validate_args(parser.parse_args())
 
 
-def calculate_stereogram(depth_map, cmd_args):
-    '''This is where all of the number crunching originates.  This function will calculate and
-    return the stereogram from the given depth map.
-    '''
-    # This keeps track of all attempts to write to a specific pixel in the resulting stereogram.
-    cumulative_stereogram = np.zeros((depth_map.shape[0], depth_map.shape[1], cmd_args.num_layers),
-        dtype=np.uint8)
+def stereogram_worker(indices):
+    '''Works on a chunk of the stereogram denoted by the given indices.'''
+    try:
+        # Configure shared memory
+        cumulative_stereogram = np.ctypeslib.as_array(global_stereogram)
+        depth_map = np.ctypeslib.as_array(global_depth_map)
 
-    # This keeps track of the number of attempts to write to a specific pixel in the image.
-    manip_counts = np.zeros((depth_map.shape[0], depth_map.shape[1]), dtype=np.uint8)
+        # Additional top-level information
+        manip_counts = np.zeros(depth_map.shape, dtype=np.uint8)
+        layer_depth = 255.0 / float(cmd_args.num_layers)
+        shift_map = np.zeros(256, dtype=int)
+        for i in xrange(256):
+            shift_map[i] = int(math.floor(float(i) / layer_depth)) - cmd_args.center_plane
 
-    # The intensity depth of a layer (range of depths mapping to the same layer).
-    layer_depth = 255.0 / float(cmd_args.num_layers)
-
-    # Tells us how far to shift stuff.
-    shift_map = np.zeros(256, dtype=int)
-    for i in xrange(256):
-        shift_map[i] = int(math.floor(float(i) / layer_depth)) - cmd_args.center_plane
-
-    for i in xrange(depth_map.shape[0]):
-        stop = depth_map.shape[1] - 1
-        start = stop - 1
-
-        # Calculate the interval in which tearing will occur.
-        while stop >= 0:
-            while start >= 0 and shift_map[depth_map[i, start]] <= shift_map[depth_map[i, start+1]]:
-                start -= 1
-            start += 1
-
-            # Get a reference to the range of original values we are checking.
-            original = depth_map[i, start:stop+1]
-
-            # Create a representation of the new range being created.
-            left = start + shift_map[depth_map[i, start]]
-            shift_left = start - left
-            right = stop + shift_map[depth_map[i, stop]]
-            shifted = np.zeros(right - left + 1, dtype=np.uint8)
-
-            for j in xrange(original.shape[0]):
-                shifted[j + shift_map[original[j]] + shift_left] = original[j]
-
-            # Correct for missing data in the shifted segment.
-            orig_ptr = start
-            for j in xrange(shifted.shape[0]):
-                if shifted[j] == depth_map[i, orig_ptr]:
-                    # This entry is good to go.
-                    orig_ptr += 1
-                else:
-                    # This entry is inside of a tear, copy the previous data point.
-                    # TODO: Handle missing data according to user preference.
-                    shifted[j] = shifted[j-1]
-
-            # Input the data into the cumulative stereogram.
-            for j in xrange(shifted.shape[0]):
-                idx = start - shift_left + j
-                if idx > 0 and idx < depth_map.shape[1]:
-                    cumulative_stereogram[i, idx, manip_counts[i, idx]] = shifted[j]
-                    manip_counts[i, idx] += 1
-
-            # Shift the indices for the next chunk of data from this line.
-            stop = start - 1
+        for i in xrange(*indices):
+            stop = depth_map.shape[1] - 1
             start = stop - 1
 
-    # Use a median filter to cut down a little bit on the edge noise.
-    return cv2.medianBlur(cumulative_stereogram.max(axis=2), 7)
+            # Calculate the interval in which tearing will occur.
+            while stop >= 0:
+                while start >= 0 and shift_map[depth_map[i, start]] <= shift_map[depth_map[i, start+1]]:
+                    start -= 1
+                start += 1
+
+                # Get a reference to the range of original values we are checking.
+                original = depth_map[i, start:stop+1]
+
+                # Create a representation of the new range being created.
+                left = start + shift_map[depth_map[i, start]]
+                shift_left = start - left
+                right = stop + shift_map[depth_map[i, stop]]
+                shifted = np.zeros(right - left + 1, dtype=np.uint8)
+
+                for j in xrange(original.shape[0]):
+                    shifted[j + shift_map[original[j]] + shift_left] = original[j]
+
+                # Correct for missing data in the shifted segment.
+                orig_ptr = start
+                for j in xrange(shifted.shape[0]):
+                    if shifted[j] == depth_map[i, orig_ptr]:
+                        # This entry is good to go.
+                        orig_ptr += 1
+                    else:
+                        # This entry is inside of a tear, copy the previous data point.
+                        # TODO: Handle missing data according to user preference.
+                        shifted[j] = shifted[j-1]
+
+                # Input the data into the cumulative stereogram.
+                for j in xrange(shifted.shape[0]):
+                    idx = start - shift_left + j
+                    if idx > 0 and idx < depth_map.shape[1]:
+                        cumulative_stereogram[i, idx, manip_counts[i, idx]] = shifted[j]
+                        manip_counts[i, idx] += 1
+
+                # Shift the indices for the next chunk of data from this line.
+                stop = start - 1
+                start = stop - 1
+        return None
+    except Exception as ex:
+        print 'Error: %s' % str(ex)
+        return ex
+
+
+def _init_process(shared_stereogram, shared_depth_map, args):
+    '''Initializes the shared memory for a new process.'''
+    global global_stereogram
+    global_stereogram = shared_stereogram
+
+    global global_depth_map
+    global_depth_map = shared_depth_map
+
+    global cmd_args
+    cmd_args = args
 
 
 def main():
@@ -140,8 +150,47 @@ def main():
     if args.reverse:
         depth_map = 255 - depth_map
 
-    # Run the calculation.
-    stereogram = calculate_stereogram(depth_map, args)
+    # Configure shared memory
+    c_stereogram = np.ctypeslib.as_ctypes(
+        np.zeros((depth_map.shape[0], depth_map.shape[1], args.num_layers), dtype=np.uint8))
+    c_depth_map = np.ctypeslib.as_ctypes(depth_map)
+    shared_stereogram = sharedctypes.Array(c_stereogram._type_, c_stereogram, lock=False)
+    shared_depth_map = sharedctypes.Array(c_depth_map._type_, c_depth_map, lock=False)
+
+    # Configure the chunks.
+    chunksize = depth_map.shape[0] / multiprocessing.cpu_count()
+    idx = 0
+    chunks = []
+    for i in range(multiprocessing.cpu_count()):
+        chunks.append((idx, idx + chunksize))
+        idx += chunksize
+    if chunks[-1][1] < depth_map.shape[0]:
+        chunks[-1] = (chunks[-1][0], depth_map.shape[0])
+
+    # Configure the processes.
+    process_pool = multiprocessing.Pool(processes=multiprocessing.cpu_count(),
+            initializer=_init_process, initargs=(shared_stereogram, shared_depth_map, args))
+
+    # Start working.
+    try:
+        result = process_pool.map(stereogram_worker, chunks)
+
+        # Check for failures
+        for item in result:
+            if isinstance(item, Exception):
+                raise item
+    except KeyboardInterrupt as ki:
+        raise ki
+    except Exception as ex:
+        raise ex
+    finally:
+        process_pool.close()
+
+    # Recover the stereogram from the stuff that the workers used.
+    stereogram = np.ctypeslib.as_array(shared_stereogram).max(axis=2)
+
+    # Post processing
+    stereogram = cv2.medianBlur(stereogram, 3)
 
     # Un-reverse if necessary
     if args.reverse:
