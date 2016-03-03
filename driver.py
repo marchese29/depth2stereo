@@ -51,6 +51,8 @@ def setup_args():
         help='The number of layers of depth.')
     parser.add_argument('--center-plane', type=int, default=0, choices=range(0,26), metavar='0-25',
         help='The number of depth layers to appear behind the center plane.')
+    parser.add_argument('--jpeg', action='store_true',
+        help='Indicates that we should attempt to squash interpolation.')
 
     return validate_args(parser.parse_args())
 
@@ -79,8 +81,8 @@ def stereogram_worker(indices):
                     start -= 1
                 start += 1
 
-                # Get a reference to the range of original values we are checking.
-                original = depth_map[i, start:stop+1]
+                # Get a copy of the range of original values we are checking.
+                original = np.copy(depth_map[i, start:stop+1])
 
                 # Create a representation of the new range being created.
                 left = start + shift_map[depth_map[i, start]]
@@ -150,6 +152,20 @@ def main():
     if args.reverse:
         depth_map = 255 - depth_map
 
+    # Find the edges that might have been interpolated, squash them.
+    if args.jpeg:
+        edge_mask = (cv2.Canny(img, 100, 200) == 255)
+        idxs_i, idxs_j = np.nonzero(edge_mask)
+        for i, j in zip(idxs_i, idxs_j):
+            # Only do this for things not already on the edge of the image.
+            if i > 1 and i < img.shape[0]-2 and j > 1 and j < img.shape[1]-2:
+                # The pixel that is one to the left is given to the pixel on the far left.
+                depth_map[i,j-1] = depth_map[i,j-2]
+                # Same with the pixel on the right.
+                depth_map[i,j+1] = depth_map[i,j+2]
+                # We need to pick a suitable color for the middle pixel
+                depth_map[i,j] = depth_map[i,j+2]
+
     # Configure shared memory
     c_stereogram = np.ctypeslib.as_ctypes(
         np.zeros((depth_map.shape[0], depth_map.shape[1], args.num_layers), dtype=np.uint8))
@@ -188,9 +204,6 @@ def main():
 
     # Recover the stereogram from the stuff that the workers used.
     stereogram = np.ctypeslib.as_array(shared_stereogram).max(axis=2)
-
-    # Post processing
-    stereogram = cv2.medianBlur(stereogram, 3)
 
     # Un-reverse if necessary
     if args.reverse:
