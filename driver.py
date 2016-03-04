@@ -17,7 +17,7 @@ The algorithm implemented in this file is a row-by-row operation that is not ord
 based on the premise that objects popping out of the page are farther apart from each other, and
 objects that are closer together appear behind the page.
 
-The Naive Approach:
+The Naïve Approach:
 A naive approach would be to have a simple shift map that correlates pixel values to shift lengths.
 This would look something like the following:
    ┌----------┬----------┬----------┐    ┌----------┬----------┬----------┬----------┬----------┐
