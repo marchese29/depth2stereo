@@ -60,12 +60,12 @@ def setup_args():
 def stereogram_worker(indices):
     '''Works on a chunk of the stereogram denoted by the given indices.'''
     try:
-        # Configure shared memory
+        # Configure global shared memory.
         cumulative_stereogram = np.ctypeslib.as_array(global_stereogram)
         depth_map = np.ctypeslib.as_array(global_depth_map)
 
         # Additional top-level information
-        manip_counts = np.zeros(depth_map.shape, dtype=np.uint8)
+        manip_counts = np.zeros(cumulative_stereogram.shape, dtype=np.uint8)
         layer_depth = 255.0 / float(cmd_args.num_layers)
         shift_map = np.zeros(256, dtype=int)
         for i in xrange(256):
@@ -101,22 +101,23 @@ def stereogram_worker(indices):
                         orig_ptr += 1
                     else:
                         # This entry is inside of a tear, copy the previous data point.
-                        # TODO: Handle missing data according to user preference.
                         shifted[j] = shifted[j-1]
 
                 # Input the data into the cumulative stereogram.
                 for j in xrange(shifted.shape[0]):
-                    idx = start - shift_left + j
-                    if idx > 0 and idx < depth_map.shape[1]:
+                    idx = start - shift_left + j + cmd_args.num_layers
+                    if idx >= 0 and idx < cumulative_stereogram.shape[1]:
                         cumulative_stereogram[i, idx, manip_counts[i, idx]] = shifted[j]
                         manip_counts[i, idx] += 1
+                    else:
+                        raise Exception('This should not happen')
 
                 # Shift the indices for the next chunk of data from this line.
                 stop = start - 1
                 start = stop - 1
         return None
     except Exception as ex:
-        print 'Error: %s' % str(ex)
+        print str(os.getpid()) + ': ' + traceback.format_exc()
         return ex
 
 
@@ -168,7 +169,8 @@ def main():
 
     # Configure shared memory
     c_stereogram = np.ctypeslib.as_ctypes(
-        np.zeros((depth_map.shape[0], depth_map.shape[1], args.num_layers), dtype=np.uint8))
+        np.zeros((depth_map.shape[0], depth_map.shape[1] + (2 * args.num_layers), args.num_layers),
+            dtype=np.uint8))
     c_depth_map = np.ctypeslib.as_ctypes(depth_map)
     shared_stereogram = sharedctypes.Array(c_stereogram._type_, c_stereogram, lock=False)
     shared_depth_map = sharedctypes.Array(c_depth_map._type_, c_depth_map, lock=False)
@@ -185,7 +187,7 @@ def main():
 
     # Configure the processes.
     process_pool = multiprocessing.Pool(processes=multiprocessing.cpu_count(),
-            initializer=_init_process, initargs=(shared_stereogram, shared_depth_map, args))
+        initializer=_init_process, initargs=(shared_stereogram, shared_depth_map, args))
 
     # Start working.
     try:
@@ -210,9 +212,9 @@ def main():
         depth_map = 255 - depth_map
         stereogram = 255 - stereogram
 
-    result = np.zeros((img.shape[0], img.shape[1] * 2), dtype=np.uint8)
-    np.copyto(result[:,:img.shape[1]], depth_map)
-    np.copyto(result[:,img.shape[1]:], stereogram)
+    result = np.zeros((img.shape[0], img.shape[1] * 2 + (2 * args.num_layers)), dtype=np.uint8)
+    np.copyto(result[:, :img.shape[1]], depth_map)
+    np.copyto(result[:, img.shape[1]:], stereogram)
 
     fig = plt.figure('The result')
     ax = fig.add_subplot(1, 1, 1)
