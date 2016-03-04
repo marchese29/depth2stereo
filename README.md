@@ -19,7 +19,7 @@ It's git, the standard operating procedure: `git clone git@github.com:marchese29
 The usage text is pretty self-explanatory:
 ```
 usage: driver.py [-h] [--reverse] [--stretch] [--num-layers 5-25]
-                 [--center-plane 0-25]
+                 [--center-plane 0-25] [--jpeg]
                  depthmap
 
 Depth-map to stereogram converter.
@@ -36,6 +36,8 @@ optional arguments:
   --num-layers 5-25    The number of layers of depth.
   --center-plane 0-25  The number of depth layers to appear behind the center
                        plane.
+  --jpeg               Indicates that we should attempt to squash
+                       interpolation.
 
 ```
 
