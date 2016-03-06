@@ -116,7 +116,7 @@ def validate_args(args):
     # TODO: Validate that the images are readable.
 
     if args.save:
-        os.path.abspath(args.save)
+        args.save = os.path.abspath(args.save)
 
     return args
 
