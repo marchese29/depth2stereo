@@ -115,6 +115,9 @@ def validate_args(args):
 
     # TODO: Validate that the images are readable.
 
+    if args.save:
+        os.path.abspath(args.save)
+
     return args
 
 
@@ -136,6 +139,8 @@ def setup_args():
         help='The number of depth layers to appear behind the center plane.')
     parser.add_argument('--jpeg', action='store_true',
         help='Indicates that we should attempt to squash interpolation.')
+    parser.add_argument('--save', type=str,
+        help='Saves the image to the given location when provided.')
 
     return validate_args(parser.parse_args())
 
@@ -274,10 +279,10 @@ def main():
 
     # Start working.
     try:
-        result = process_pool.map(stereogram_worker, chunks)
+        results = process_pool.map(stereogram_worker, chunks)
 
         # Check for failures
-        for item in result:
+        for item in results:
             if isinstance(item, Exception):
                 raise item
     except KeyboardInterrupt as ki:
@@ -299,11 +304,14 @@ def main():
     np.copyto(result[:, :img.shape[1]], depth_map)
     np.copyto(result[:, img.shape[1]:], stereogram)
 
-    fig = plt.figure('The result')
-    ax = fig.add_subplot(1, 1, 1)
-    ax.imshow(result, cm.Greys_r)
-    plt.axis('off')
-    plt.show()
+    if not args.save:
+        fig = plt.figure('The result')
+        ax = fig.add_subplot(1, 1, 1)
+        ax.imshow(result, cm.Greys_r)
+        plt.axis('off')
+        plt.show()
+    else:
+        cv2.imwrite(args.save, result)
 
     return 0
 
